@@ -11,7 +11,9 @@ import os.path
 import sys
 import time
 
+from postgresql.pgsql_distiller import SftpLogPgSqlDistiller
 from couchdb.couchdb_distiller  import SftpLogCdbDistiller 
+
 from sftp.sftp_session          import SftpSessionJsonEncoder 
 from sftp.sftp_log_parser       import SftpLogParser
 
@@ -63,8 +65,11 @@ try:
     logger.addHandler(fileHandler)
 
     # !!! TESTING !!!
-    logDistiller = SftpLogCdbDistiller("http://127.0.0.1:5984")
-    logDistiller.connect("sftp_accounts", "sftp_sessions")
+    #logDistiller = SftpLogCdbDistiller("http://127.0.0.1:5984")
+    #logDistiller.connect("sftp_accounts", "sftp_sessions")
+
+    logDistiller = SftpLogPgSqlDistiller('host=172.17.0.2 dbname=postgres user=postgres')
+    logDistiller.connect()
 
     #acctFile = open("accounts.txt", "w")
     #sessFile = open("sessions.txt", "w")

@@ -29,7 +29,7 @@ class SftpCommandTypes(enum.Enum):
     Remove          = 17
     Set             = 18
 
-# String 
+# String
 SftpCommandTypesMap = {
     "session opened "   : SftpCommandTypes.SessionStart,
     "session closed "   : SftpCommandTypes.SessionFinish,
@@ -65,40 +65,43 @@ class SftpCommand:
         self.time_offset_   = timeOffset
         self.target_        = target
         self.source_        = source
-        self.status_        = SftpStatusTypes.Success 
+
+        if cmdType == SftpCommandTypes.StatusResponse:
+            self.status_    = SftpStatusTypes.Failure
+        else:
+            self.status_    = SftpStatusTypes.Success
 
 # Encapsulate the data and context of a client's SFTP session, as described in
 # an SFTP log file.
 class SftpSession :
 
     # The beginning of our time offset
-    BIG_BANG = datetime.datetime(2000,1,1,0,0,0) 
+    BIG_BANG = datetime.datetime(2000,1,1,0,0,0)
 
-    def __init__(self, acctId, startDateTime, pid):
+    def __init__(self, acctId, pid, sessionDate):
         # These fields uniquely identify an SFTP session
-        #   => start time (*as offset from 1/1/2000*)
         #   => numeric account ID
         #   => numeric Linux process ID
-        self.start_time_  = startDateTime - SftpSession.BIG_BANG 
-        self.acct_id_     = acctId 
-        self.pid_         = pid 
-      
-        self.sess_id_     = SftpSession.calculate_key(acctId, startDateTime, pid)
-       
-        self.start_dt_    = startDateTime
-        self.end_time_    = 0 
+        #   => session date
+        self.sess_id_       = self.calculate_key(acctId, pid, sessionDate)
+        self.acct_id_       = acctId
+        self.pid_           = pid
+        self.session_date_  = sessionDate
+
+        self.start_time_  = 0
+        self.end_time_    = 0
         self.ip_addr_     = 0
 
         self.commands_    = []
 
+        self.was_saved_   = False
+
     @classmethod
-    def calculate_key(classobj, acctId, startTime, pid):
-        datediff = startTime - SftpSession.BIG_BANG
-        
+    def calculate_key(classobj, acctId, pid, sessionDate):
         keyhash = hashlib.sha256()
-        key = "{0}_{1}_{2}".format(int(datediff.total_seconds()*1000),acctId,pid)
-        keyhash.update(key.encode('utf-8'))
-        return str(base64.b64encode(keyhash.digest()))
+        key = "{0}_{1}_{2}".format(acctId, pid, sessionDate.toordinal())
+        keyhash.update(key.encode())
+        return base64.b64encode(keyhash.digest()).decode('utf-8')
 
     def session_start_as_milliseconds(self):
         if self.start_time_:
@@ -133,20 +136,21 @@ class SftpSession :
     @classmethod
     def toJSON(classobj, sftpSession):
         jsonObj = {
-            "sessionId" : sftpSession.sess_id_,
-            "accountId" : sftpSession.acct_id_,
-            "pid"       : sftpSession.pid_,
-            "startTime" : sftpSession.session_start_as_milliseconds(),
-            "endTime"   : sftpSession.session_end_as_milliseconds(),
-            "ipAddress" : int(sftpSession.ip_addr_)}
-        
+            "sessionId"     : sftpSession.sess_id_,
+            "accountId"     : sftpSession.acct_id_,
+            "sessionDate"   : sftpSession.session_date_.toordinal(),
+            "pid"           : sftpSession.pid_,
+            "startTime"     : sftpSession.session_start_as_milliseconds(),
+            "endTime"       : sftpSession.session_end_as_milliseconds(),
+            "ipAddress"     : int(sftpSession.ip_addr_)}
+
         cmdList = []
         for i in range(len(sftpSession.commands_)):
             cmd = sftpSession.commands_[i]
             cmdList.append({
                 "sequenceId" : i,
                 "type"       : cmd.cmd_type_.value,
-                "timeOffset" : int(cmd.time_offset_.total_seconds() * 1000),  
+                "timeOffset" : int(cmd.time_offset_.total_seconds() * 1000),
                 "target"     : cmd.target_,
                 "source"     : cmd.source_,
                 "status"     : cmd.status_.value})

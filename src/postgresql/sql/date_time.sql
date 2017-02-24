@@ -20,3 +20,25 @@ begin
    return som;
 end;$$ language plpgsql;
 
+create or replace function date_time.julian_days(dt date)
+returns int 
+as $$
+declare
+   jdays integer;
+begin
+
+   jdays := cast(to_char(dt, 'J') as integer);
+   return jdays;
+end;$$ language plpgsql;
+
+create or replace function date_time.julian_date(days integer)
+returns date 
+as $$
+declare
+   jdate date;
+begin
+
+   jdate := to_date(cast(days as text), 'J');
+   return jdate;
+end;$$ language plpgsql;
+
