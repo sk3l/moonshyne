@@ -92,6 +92,30 @@ begin
 
 end;$$ language plpgsql;
 
+create or replace function moonshyne_sftp.save_accounts(acct_json json)
+returns integer
+as $$
+declare
+   rv   integer := 0;
+begin
+
+      insert into moonshyne_sftp.accounts
+         (account_id, account_name, entry_datetime)
+         select
+            "accountId", "accountName", current_timestamp
+         from
+            json_to_recordset(acct_json)
+         as
+            x(sessions text, "accountId" integer, "accountName" text)
+         where
+            not exists (
+               select 1 from moonshyne_sftp.accounts a where x."accountId" = a.account_id
+            );
+
+      return rv;
+
+end;$$ language plpgsql;
+
 create or replace function moonshyne_sftp.create_sessions(session_json json)
 returns integer
 as $$
@@ -240,6 +264,134 @@ begin
    return rv;
 
 end;$$ language plpgsql;
+
+create or replace function moonshyne_sftp.save_sessions(session_json json)
+returns integer
+as $$
+declare
+   rv   integer := 0;
+   sid  integer := 0;
+   seq  integer := -1;
+begin
+
+   -- Create new sessions
+   insert into moonshyne_sftp.sessions
+      (account_id, session_pid, session_date, session_start,
+          session_end, ip_address, entry_datetime)
+      select
+         "accountId", "pid", date_time.julian_date("sessionDate"),
+         "startTime", "endTime", "ipAddress", current_timestamp
+      from
+         json_to_recordset(session_json)
+      as
+      x("serverId" integer,
+        "accountId" integer,
+        "pid" integer,
+        "sessionDate" integer,
+        "startTime" bigint,
+        "endTime" bigint,
+        "ipAddress" bigint)
+      where not exists (
+         select 1 from moonshyne_sftp.sessions s where
+         s.account_id = "accountId" and
+         s.session_pid = "pid" and
+         s.session_date = date_time.julian_date("sessionDate") 
+      );
+
+
+   -- Update existing session 
+   update moonshyne_sftp.sessions
+   set
+      --session_start = sess.start_time,
+      session_end = sess.end_time,
+      ip_address  = sess.ip_address
+   from
+   (
+      select
+         "startTime" as start_time, "endTime" as end_time,
+         "ipAddress" as ip_address
+      from
+         json_to_recordset(session_json)
+      as
+      x("serverId" integer,
+        "accountId" integer,
+        "pid" integer,
+        "sessionDate" integer,
+        "startTime" bigint,
+        "endTime" bigint,
+        "ipAddress" bigint)
+      where exists (
+         select 1 from moonshyne_sftp.sessions s where
+         s.account_id = "accountId" and
+         s.session_pid = "pid" and
+         s.session_date =  date_time.julian_date("sessionDate")
+      )      
+   ) as sess;
+
+   -- Insert new session commands in the update batch
+   insert into moonshyne_sftp.commands
+      (session_id,command_seq_id,time_offset,command_type,command_target,
+          command_source,command_status,entry_datetime)
+      with sess as (
+         select value as sessn from json_array_elements(session_json)
+      )
+      select
+         s2.session_id,
+         cast(cmd->>'sequenceId' as smallint),
+         cast(cmd->>'timeOffset' as bigint),
+         cast(cmd->>'type' as int),
+         cast(cmd->>'target' as text),
+         cast(cmd->>'source' as text),
+         cast(cmd->>'status' as int),
+         current_timestamp
+      from
+         sess s1
+            cross join
+         json_array_elements(s1.sessn->'commands') cmd
+            join
+         moonshyne_sftp.sessions s2 on
+            cast(s1.sessn->>'accountId' as int) = s2.account_id and
+            cast(s1.sessn->>'pid' as int)       = s2.session_pid and
+            date_time.julian_date(cast(s1.sessn->>'sessionDate' as int)) = s2.session_date
+      where
+         not exists
+         (
+            select 1 from moonshyne_sftp.commands c
+            where c.session_id = s2.session_id and
+            c.command_seq_id = cast(cmd->>'sequenceId' as smallint)
+         );
+
+   -- Update existing session commands in the update batch
+   update moonshyne_sftp.commands
+      set
+         command_status = cmds.status
+      from
+      (
+         with sess as (
+            select value as sessn from json_array_elements(session_json)
+         )
+         select
+            s2.session_id sess_id,
+            cast(cmd->>'sequenceId' as smallint) cmd_seq,
+            cast(cmd->>'status' as int) as status
+         from
+            sess s1
+               cross join
+            json_array_elements(s1.sessn->'commands') cmd
+               join
+            moonshyne_sftp.sessions s2 on
+               cast(s1.sessn->>'accountId' as int) = s2.account_id and
+               cast(s1.sessn->>'pid' as int)       = s2.session_pid and
+               date_time.julian_date(cast(s1.sessn->>'sessionDate' as int)) = s2.session_date
+      ) as cmds
+      where
+         session_id = sess_id and
+         command_seq_id = cmd_seq;
+
+   return rv;
+
+end;$$ language plpgsql;
+
 
 --
 create or replace function moonshyne_sftp.get_session_key(s_id integer)

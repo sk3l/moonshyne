@@ -50,7 +50,7 @@ class SftpLogPgSqlDistiller :
                     pgsql_cmd = self.pgdb_server_.cursor()
 
                     acctStr = json.dumps(acctDocs)
-                    pgsql_cmd.execute("select moonshyne_sftp.create_accounts(cast(%s as json));",
+                    pgsql_cmd.execute("select moonshyne_sftp.save_accounts(cast(%s as json));",
                         (acctStr,))
 
                     self.account_batch_.clear()
@@ -85,41 +85,23 @@ class SftpLogPgSqlDistiller :
             if self.session_batch_cnt_ == SftpLogPgSqlDistiller.BATCH_SIZE:
                 pgsql_cmd = None
                 try:
-                    newSessDocs = []
-                    updSessDocs = []
+                    sessDocs = []
 
                     for sid in self.session_batch_:
 
                         sess = self.session_cache_[sid]
-                        if not "wasSaved" in sess:
-                            newSessDocs.append(sess)
-                        else:
-                            updSessDocs.append(sess)
+                        sessDocs.append(sess)
 
                     pgsql_cmd = self.pgdb_server_.cursor()
 
-                    sessStr = ""
+                    sessStr = json.dumps(sessDocs)
+                    pgsql_cmd.execute("select moonshyne_sftp.save_sessions(cast(%s as json));",
+                          (sessStr,))
 
-                    if len(newSessDocs) > 0:
-                        sessStr = json.dumps(newSessDocs)
-                        pgsql_cmd.execute("select moonshyne_sftp.create_sessions(cast(%s as json))",
-                            (sessStr,))
-                        for newSess in newSessDocs:
-                            self.session_cache_[newSess["sessionId"]]["wasSaved"] = True
-
-                    if len(updSessDocs) > 0:
-                        sessStr = json.dumps(updSessDocs)
-                        pgsql_cmd.execute("select moonshyne_sftp.update_sessions(cast(%s as json));",
-                            (sessStr,))
-                        # DEBUG #
-                        #with open("look.out", 'w') as fo:
-                        #    fo.write(sessStr)
-                        #    fo.flush()
+                    self.pgdb_server_.commit()
 
                     self.session_batch_.clear()
                     self.session_batch_cnt_ = 0
-
-                    self.pgdb_server_.commit()
 
                 finally:
                     if pgsql_cmd:
@@ -141,34 +123,21 @@ class SftpLogPgSqlDistiller :
             pgsql_cmd = self.pgdb_server_.cursor()
 
             acctStr = json.dumps(acctDocs)
-            pgsql_cmd.execute("select moonshyne_sftp.create_accounts(cast(%s as json));",
+            pgsql_cmd.execute("select moonshyne_sftp.save_accounts(cast(%s as json));",
                 (acctStr,))
 
-            newSessDocs = []
-            updSessDocs = []
+            sessDocs = []
 
             for sid in self.session_batch_:
 
                 sess = self.session_cache_[sid]
-                if not "wasSaved":
-                    newSessDocs.append(sess)
-                else:
-                    updSessDocs.append(sess)
+                sessDocs.append(sess)
 
             cursor = self.pgdb_server_.cursor()
 
-            sessStr = ""
-            if len(newSessDocs) > 0:
-                sessStr = json.dumps(newSessDocs)
-                cursor.execute("select moonshyne_sftp.create_sessions(%s)",
-                    (sessStr,))
-                for newSess in newSessDocs:
-                    self.session_cache_[newSess["sessionId"]]["wasSaved"] = True
-
-            if len(updSessDocs) > 0:
-                sessStr = json.dumps(updSessDocs)
-                cursor.execute("select moonshyne_sftp.update_sessions(%s);",
-                    (sessStr,))
+            sessStr = json.dumps(sessDocs)
+            pgsql_cmd.execute("select moonshyne_sftp.save_sessions(cast(%s as json));",
+                   (sessStr,))
 
             self.pgdb_server_.commit()
 
